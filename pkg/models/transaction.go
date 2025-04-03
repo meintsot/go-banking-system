@@ -15,14 +15,13 @@ const (
 
 // Transaction represents a bank transaction
 type Transaction struct {
-	ID              string
-	AccountID       string
-	Amount          float64
-	TransactionType TransactionType
-	Description     string
-	Timestamp       time.Time
-	// For transfers
-	DestinationAccountID string
+	ID                   string
+	AccountID            string
+	Amount               float64
+	TransactionType      TransactionType
+	Description          string
+	Timestamp            time.Time
+	DestinationAccountID string // Used for transfers
 }
 
 // NewTransaction creates a new transaction record

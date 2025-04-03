@@ -1,91 +1,212 @@
-# Banking System Simulation
+# Banking System
 
-This project simulates a banking system to demonstrate various Go programming concepts and design patterns without implementing actual REST calls or database communication.
+A Go-based banking system with SQLite database storage and a REST API supporting both JSON and XML formats.
 
-## Project Overview
+## Features
 
-The banking system simulation includes the following features:
-- Customer management
-- Account management (checking, savings, business)
-- Transaction processing (deposits, withdrawals, transfers)
-- External system integration via adapters
-- Notification system with adapter pattern implementation
-- Generic repository pattern using Go generics
+- Customer management (create, read, update, delete)
+- Account management with different account types
+- Transaction handling (deposits, withdrawals, transfers)
+- Persistent storage using SQLite
+- RESTful API with JSON and XML support
 
-## Key Go Concepts Demonstrated
+## Getting Started
 
-1. **Structs and Interfaces**
-   - Modeling domain entities with structs (Customer, Account, Transaction)
-   - Interface-based design for loose coupling
-   - Interface implementations for different behaviors
+### Prerequisites
 
-2. **Pointers and References**
-   - Pointer receivers for methods that modify state
-   - Passing pointers to repositories to ensure proper data manipulation
+- Go 1.16 or higher
+- SQLite 3
 
-3. **Package Organization**
-   - Modular code organization with domain-specific packages
-   - Clean separation of concerns across packages
+### Installation
 
-4. **Generics**
-   - Generic repository implementation for type-safe data access
-   - Type constraints with interfaces
+1. Clone the repository
+2. Run `go build` to compile the application
 
-5. **Design Patterns**
-   - **Adapter Pattern**: For external system communication and notifications
-   - **Repository Pattern**: For data access abstraction
-   - **Dependency Injection**: For service composition
-
-## Project Structure
+### Running the Application
 
 ```
-bankingsystem/
-├── main.go                    # Application entry point
-└── pkg/                       # Package directory
-    ├── models/                # Domain models
-    │   ├── account.go         # Account entity
-    │   ├── customer.go        # Customer entity
-    │   └── transaction.go     # Transaction entity
-    ├── services/              # Business logic
-    │   ├── banking_service.go # Core banking functionality
-    │   └── interfaces.go      # Service interfaces
-    ├── adapters/              # External system adapters
-    │   ├── external_systems.go # External system integration
-    │   ├── generic_repository.go # Generic repository implementation
-    │   └── memory_repository.go # In-memory data storage
-    └── utils/                 # Utility functions
-        └── id_generator.go    # UUID generation
+./BankingSystem -db ./banking.db -port 8080
 ```
 
-## Running the Application
+Options:
+- `-db`: Path to SQLite database file (default: "./banking.db")
+- `-port`: API server port (default: 8080)
 
-To run the banking system simulation:
+## API Documentation
 
-```bash
-go run main.go
+The API supports both JSON and XML formats:
+- For JSON: Set `Content-Type: application/json` and `Accept: application/json` headers
+- For XML: Set `Content-Type: application/xml` and `Accept: application/xml` headers
+
+### Customer Endpoints
+
+#### List All Customers
+
+```
+GET /customers
 ```
 
-This will execute the simulation which demonstrates:
-1. Creating customers and accounts
-2. Performing banking operations (deposits, withdrawals, transfers)
-3. Using the adapter pattern to switch between notification methods
-4. Demonstrating external system integration
-5. Using the generic repository pattern
+#### Get a Customer
 
-## Design Patterns Explained
+```
+GET /customers/{id}
+```
 
-### Adapter Pattern
+#### Create a Customer
 
-The adapter pattern is implemented in two ways:
-1. `NotificationAdapter`: Allows the system to switch between email and SMS notifications while providing a unified interface
-2. `ReportingAdapter`: Allows the system to interact with external reporting systems
+```
+POST /customers
 
-### Repository Pattern
+JSON body:
+{
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@example.com",
+  "phone": "123-456-7890",
+  "address": "123 Main St"
+}
 
-The project implements both specific and generic repositories:
-1. Type-specific repositories: `InMemoryCustomerRepository`, `InMemoryAccountRepository`, etc.
-2. Generic repository: `GenericRepository[T Entity]` which works with any type that implements the `Entity` interface
+XML body:
+<customer>
+  <first_name>John</first_name>
+  <last_name>Doe</last_name>
+  <email>john.doe@example.com</email>
+  <phone>123-456-7890</phone>
+  <address>123 Main St</address>
+</customer>
+```
 
-### Dependency Injection
+#### Update a Customer
 
-Services are composed by injecting their dependencies, making them testable and modular.
+```
+PUT /customers/{id}
+
+JSON body (fields to update):
+{
+  "phone": "555-123-4567",
+  "address": "456 Oak Ave"
+}
+
+XML body (fields to update):
+<customer>
+  <phone>555-123-4567</phone>
+  <address>456 Oak Ave</address>
+</customer>
+```
+
+#### Delete a Customer
+
+```
+DELETE /customers/{id}
+```
+
+### Account Endpoints
+
+#### Get an Account
+
+```
+GET /accounts/{id}
+```
+
+#### Get Customer Accounts
+
+```
+GET /customers/{id}/accounts
+```
+
+#### Create an Account
+
+```
+POST /accounts
+
+JSON body:
+{
+  "customer_id": "customer-uuid",
+  "initial_balance": 1000.00,
+  "account_type": "CHECKING"
+}
+
+XML body:
+<account>
+  <customer_id>customer-uuid</customer_id>
+  <initial_balance>1000.00</initial_balance>
+  <account_type>CHECKING</account_type>
+</account>
+```
+
+#### Delete an Account
+
+```
+DELETE /accounts/{id}
+```
+
+### Transaction Endpoints
+
+#### Deposit to an Account
+
+```
+POST /accounts/{id}/deposit
+
+JSON body:
+{
+  "amount": 500.00
+}
+
+XML body:
+<money>
+  <amount>500.00</amount>
+</money>
+```
+
+#### Withdraw from an Account
+
+```
+POST /accounts/{id}/withdraw
+
+JSON body:
+{
+  "amount": 200.00
+}
+
+XML body:
+<money>
+  <amount>200.00</amount>
+</money>
+```
+
+#### Transfer Between Accounts
+
+```
+POST /transfers?from={source_account_id}
+
+JSON body:
+{
+  "destination_account_id": "destination-account-id",
+  "amount": 300.00
+}
+
+XML body:
+<money>
+  <destination_account_id>destination-account-id</destination_account_id>
+  <amount>300.00</amount>
+</money>
+```
+
+#### Get Account Transactions
+
+```
+GET /accounts/{id}/transactions
+```
+
+## Error Handling
+
+The API returns appropriate HTTP status codes and error messages:
+
+- 200: Success
+- 201: Created
+- 204: No Content (successful delete)
+- 400: Bad Request (validation error)
+- 404: Not Found
+- 409: Conflict (e.g., trying to delete a customer with active accounts)
+- 415: Unsupported Media Type
+- 500: Internal Server Error

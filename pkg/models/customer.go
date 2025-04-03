@@ -1,5 +1,10 @@
 package models
 
+// Entity represents a generic entity with an ID
+type Entity interface {
+	GetID() string
+}
+
 // Customer represents a bank customer
 type Customer struct {
 	ID        string
