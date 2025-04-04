@@ -2,34 +2,34 @@ package utils
 
 import (
 	"bankingsystem/pkg/models"
-	"database/sql"
 	"fmt"
 	"log"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // Import SQLite driver with underscore
+	"github.com/glebarez/sqlite" // Pure Go SQLite driver for GORM
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // DBMigrator is a utility for migrating data from old SQLite database to GORM database
 type DBMigrator struct {
-	sourceDB *sql.DB
+	sourceDB *gorm.DB
 	targetDB *gorm.DB
 	logger   *log.Logger
 }
 
 // NewDBMigrator creates a new database migrator
 func NewDBMigrator(sourceDBPath string, targetDB *gorm.DB, logger *log.Logger) (*DBMigrator, error) {
-	// Open the source database using the mattn/go-sqlite3 driver
-	sourceDB, err := sql.Open("sqlite3", sourceDBPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open source database: %v", err)
+	// Set up GORM configuration for source DB
+	config := &gorm.Config{
+		Logger:                                   gormlogger.Default.LogMode(gormlogger.Error), // Silence most GORM logs for source DB
+		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
-	// Check connection
-	if err = sourceDB.Ping(); err != nil {
-		sourceDB.Close()
-		return nil, fmt.Errorf("error connecting to source database: %v", err)
+	// Open source database connection with GORM
+	sourceDB, err := gorm.Open(sqlite.Open(sourceDBPath), config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open source database with GORM: %v", err)
 	}
 
 	return &DBMigrator{
@@ -39,13 +39,34 @@ func NewDBMigrator(sourceDBPath string, targetDB *gorm.DB, logger *log.Logger) (
 	}, nil
 }
 
-// Close closes the source database connection
-func (m *DBMigrator) Close() error {
-	return m.sourceDB.Close()
-}
-
 // MigrateAll migrates all data from the source database to the target database
 func (m *DBMigrator) MigrateAll() error {
+	// First, let's check what tables are available in the source database
+	var tables []string
+	if err := m.sourceDB.Raw("SELECT name FROM sqlite_master WHERE type='table'").Scan(&tables).Error; err != nil {
+		return fmt.Errorf("error checking tables in source database: %v", err)
+	}
+
+	m.logger.Printf("Found tables in source database: %v", tables)
+
+	// For each table, print the schema
+	for _, table := range tables {
+		var schema string
+		if err := m.sourceDB.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&schema).Error; err != nil {
+			m.logger.Printf("Warning: Could not get schema for table %s: %v", table, err)
+			continue
+		}
+		m.logger.Printf("Schema for table %s: %s", table, schema)
+
+		// Get row count for this table
+		var count int64
+		if err := m.sourceDB.Table(table).Count(&count).Error; err != nil {
+			m.logger.Printf("Warning: Could not count rows in table %s: %v", table, err)
+			continue
+		}
+		m.logger.Printf("Table %s has %d rows", table, count)
+	}
+
 	// Begin a transaction on the target database
 	tx := m.targetDB.Begin()
 	defer func() {
@@ -83,163 +104,142 @@ func (m *DBMigrator) MigrateAll() error {
 func (m *DBMigrator) migrateCustomers(tx *gorm.DB) error {
 	m.logger.Println("Migrating customers...")
 
-	// Query all customers from the source database
-	rows, err := m.sourceDB.Query(`
-		SELECT id, first_name, last_name, email, phone, address 
-		FROM customers
-	`)
-	if err != nil {
+	// Create temporary model structs for source DB that match old schema
+	type OldCustomer struct {
+		ID        string
+		FirstName string `gorm:"column:first_name"`
+		LastName  string `gorm:"column:last_name"`
+		Email     string
+		Phone     string
+		Address   string
+	}
+
+	// Tell GORM the table name explicitly
+	m.sourceDB.Table("customers")
+
+	// Read all customers from source database
+	var oldCustomers []OldCustomer
+	if err := m.sourceDB.Table("customers").Find(&oldCustomers).Error; err != nil {
 		return fmt.Errorf("error querying customers: %v", err)
 	}
-	defer rows.Close()
 
-	// Migrate each customer
-	var migratedCount int
-	for rows.Next() {
-		var customer models.Customer
-		err := rows.Scan(
-			&customer.ID,
-			&customer.FirstName,
-			&customer.LastName,
-			&customer.Email,
-			&customer.Phone,
-			&customer.Address,
-		)
-		if err != nil {
-			return fmt.Errorf("error scanning customer: %v", err)
+	// Migrate each customer to the target database
+	for _, oldCustomer := range oldCustomers {
+		newCustomer := models.Customer{
+			ID:        oldCustomer.ID,
+			FirstName: oldCustomer.FirstName,
+			LastName:  oldCustomer.LastName,
+			Email:     oldCustomer.Email,
+			Phone:     oldCustomer.Phone,
+			Address:   oldCustomer.Address,
 		}
 
-		// Create the customer in the target database
-		if err := tx.Create(&customer).Error; err != nil {
+		if err := tx.Create(&newCustomer).Error; err != nil {
 			return fmt.Errorf("error creating customer in target database: %v", err)
 		}
-
-		migratedCount++
 	}
 
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating customer rows: %v", err)
-	}
-
-	m.logger.Printf("Successfully migrated %d customers\n", migratedCount)
+	m.logger.Printf("Successfully migrated %d customers\n", len(oldCustomers))
 	return nil
 }
 
 func (m *DBMigrator) migrateAccounts(tx *gorm.DB) error {
 	m.logger.Println("Migrating accounts...")
 
-	// Query all accounts from the source database
-	rows, err := m.sourceDB.Query(`
-		SELECT id, customer_id, balance, account_type, created_at, last_activity 
-		FROM accounts
-	`)
-	if err != nil {
+	// Create temporary model structs for source DB that match old schema
+	type OldAccount struct {
+		ID           string
+		CustomerID   string `gorm:"column:customer_id"`
+		Balance      float64
+		AccountType  string `gorm:"column:account_type"`
+		CreatedAt    string `gorm:"column:created_at"`
+		LastActivity string `gorm:"column:last_activity"`
+	}
+
+	// Read all accounts from source database
+	var oldAccounts []OldAccount
+	if err := m.sourceDB.Table("accounts").Find(&oldAccounts).Error; err != nil {
 		return fmt.Errorf("error querying accounts: %v", err)
 	}
-	defer rows.Close()
 
-	// Migrate each account
-	var migratedCount int
-	for rows.Next() {
-		var account models.Account
-		var createdAtStr, lastActivityStr string
-
-		err := rows.Scan(
-			&account.ID,
-			&account.CustomerID,
-			&account.Balance,
-			&account.AccountType,
-			&createdAtStr,
-			&lastActivityStr,
-		)
+	// Migrate each account to the target database
+	for _, oldAccount := range oldAccounts {
+		// Parse time fields
+		createdAt, err := parseTime(oldAccount.CreatedAt)
 		if err != nil {
-			return fmt.Errorf("error scanning account: %v", err)
+			m.logger.Printf("Warning: Could not parse created_at time for account %s: %v - using current time", oldAccount.ID, err)
+			createdAt = time.Now()
 		}
 
-		// Parse time strings
-		account.CreatedAt, err = parseTime(createdAtStr)
+		lastActivity, err := parseTime(oldAccount.LastActivity)
 		if err != nil {
-			return fmt.Errorf("error parsing created_at time: %v", err)
+			m.logger.Printf("Warning: Could not parse last_activity time for account %s: %v - using current time", oldAccount.ID, err)
+			lastActivity = time.Now()
 		}
 
-		account.LastActivity, err = parseTime(lastActivityStr)
-		if err != nil {
-			return fmt.Errorf("error parsing last_activity time: %v", err)
+		newAccount := models.Account{
+			ID:           oldAccount.ID,
+			CustomerID:   oldAccount.CustomerID,
+			Balance:      oldAccount.Balance,
+			AccountType:  models.AccountType(oldAccount.AccountType),
+			CreatedAt:    createdAt,
+			LastActivity: lastActivity,
 		}
 
-		// Create the account in the target database
-		if err := tx.Create(&account).Error; err != nil {
+		if err := tx.Create(&newAccount).Error; err != nil {
 			return fmt.Errorf("error creating account in target database: %v", err)
 		}
-
-		migratedCount++
 	}
 
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating account rows: %v", err)
-	}
-
-	m.logger.Printf("Successfully migrated %d accounts\n", migratedCount)
+	m.logger.Printf("Successfully migrated %d accounts\n", len(oldAccounts))
 	return nil
 }
 
 func (m *DBMigrator) migrateTransactions(tx *gorm.DB) error {
 	m.logger.Println("Migrating transactions...")
 
-	// Query all transactions from the source database
-	rows, err := m.sourceDB.Query(`
-		SELECT id, account_id, amount, transaction_type, description, timestamp, destination_account_id 
-		FROM transactions
-	`)
-	if err != nil {
+	// Create temporary model structs for source DB that match old schema
+	type OldTransaction struct {
+		ID                   string
+		AccountID            string `gorm:"column:account_id"`
+		Amount               float64
+		TransactionType      string `gorm:"column:transaction_type"`
+		Description          string
+		Timestamp            string
+		DestinationAccountID string `gorm:"column:destination_account_id"`
+	}
+
+	// Read all transactions from source database
+	var oldTransactions []OldTransaction
+	if err := m.sourceDB.Table("transactions").Find(&oldTransactions).Error; err != nil {
 		return fmt.Errorf("error querying transactions: %v", err)
 	}
-	defer rows.Close()
 
-	// Migrate each transaction
-	var migratedCount int
-	for rows.Next() {
-		var transaction models.Transaction
-		var timestampStr string
-		var destinationAccountID sql.NullString
-
-		err := rows.Scan(
-			&transaction.ID,
-			&transaction.AccountID,
-			&transaction.Amount,
-			&transaction.TransactionType,
-			&transaction.Description,
-			&timestampStr,
-			&destinationAccountID,
-		)
+	// Migrate each transaction to the target database
+	for _, oldTx := range oldTransactions {
+		// Parse timestamp
+		timestamp, err := parseTime(oldTx.Timestamp)
 		if err != nil {
-			return fmt.Errorf("error scanning transaction: %v", err)
+			m.logger.Printf("Warning: Could not parse timestamp for transaction %s: %v - using current time", oldTx.ID, err)
+			timestamp = time.Now()
 		}
 
-		// Parse time string
-		transaction.Timestamp, err = parseTime(timestampStr)
-		if err != nil {
-			return fmt.Errorf("error parsing timestamp: %v", err)
+		newTransaction := models.Transaction{
+			ID:                   oldTx.ID,
+			AccountID:            oldTx.AccountID,
+			Amount:               oldTx.Amount,
+			TransactionType:      models.TransactionType(oldTx.TransactionType),
+			Description:          oldTx.Description,
+			Timestamp:            timestamp,
+			DestinationAccountID: oldTx.DestinationAccountID,
 		}
 
-		// Handle nullable destination account ID
-		if destinationAccountID.Valid {
-			transaction.DestinationAccountID = destinationAccountID.String
-		}
-
-		// Create the transaction in the target database
-		if err := tx.Create(&transaction).Error; err != nil {
+		if err := tx.Create(&newTransaction).Error; err != nil {
 			return fmt.Errorf("error creating transaction in target database: %v", err)
 		}
-
-		migratedCount++
 	}
 
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating transaction rows: %v", err)
-	}
-
-	m.logger.Printf("Successfully migrated %d transactions\n", migratedCount)
+	m.logger.Printf("Successfully migrated %d transactions\n", len(oldTransactions))
 	return nil
 }
 
@@ -260,4 +260,16 @@ func parseTime(timeStr string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("unable to parse time string: %s", timeStr)
+}
+
+// Close closes the database connections
+func (m *DBMigrator) Close() error {
+	if m.sourceDB != nil {
+		sqlDB, err := m.sourceDB.DB()
+		if err != nil {
+			return fmt.Errorf("error getting source SQL DB: %v", err)
+		}
+		return sqlDB.Close()
+	}
+	return nil
 }

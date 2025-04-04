@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -28,12 +29,21 @@ func main() {
 			log.Fatalf("No source database specified and no backup found. Please use -source flag.")
 		}
 
-		// Find the latest backup (assuming the naming convention includes a timestamp)
+		// Find the latest backup using regex to extract the timestamp
 		latestBackup := backups[0]
 		var latestTime time.Time
+
+		// Regex to extract date from backup filenames (banking_backup_YYYYMMDD_HHMMSS.db)
+		re := regexp.MustCompile(`banking_backup_(\d{8}_\d{6})\.db`)
+
 		for _, backup := range backups {
-			// Extract date from filename (assuming format: banking_backup_YYYYMMDD_HHMMSS.db)
-			dateStr := backup[15:29] // Extract YYYYMMDD_HHMMSS part
+			matches := re.FindStringSubmatch(backup)
+			if len(matches) != 2 {
+				log.Printf("Warning: Could not parse time from backup filename %s", backup)
+				continue
+			}
+
+			dateStr := matches[1]
 			backupTime, err := time.ParseInLocation("20060102_150405", dateStr, time.Local)
 			if err != nil {
 				log.Printf("Warning: Could not parse time from backup filename %s: %v", backup, err)
