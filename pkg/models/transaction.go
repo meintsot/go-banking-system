@@ -15,13 +15,15 @@ const (
 
 // Transaction represents a bank transaction
 type Transaction struct {
-	ID                   string
-	AccountID            string
-	Amount               float64
-	TransactionType      TransactionType
+	ID                   string          `gorm:"primaryKey"`
+	AccountID            string          `gorm:"index;not null"`
+	Account              *Account        `gorm:"foreignKey:AccountID"`
+	Amount               float64         `gorm:"not null"`
+	TransactionType      TransactionType `gorm:"not null"`
 	Description          string
-	Timestamp            time.Time
-	DestinationAccountID string // Used for transfers
+	Timestamp            time.Time `gorm:"not null;index"`
+	DestinationAccountID string    `gorm:"index"` // Used for transfers
+	DestinationAccount   *Account  `gorm:"foreignKey:DestinationAccountID"`
 }
 
 // NewTransaction creates a new transaction record

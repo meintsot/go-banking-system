@@ -1,5 +1,11 @@
 package models
 
+import (
+	"errors"
+
+	"gorm.io/gorm"
+)
+
 // Entity represents a generic entity with an ID
 type Entity interface {
 	GetID() string
@@ -7,10 +13,10 @@ type Entity interface {
 
 // Customer represents a bank customer
 type Customer struct {
-	ID        string
-	FirstName string
-	LastName  string
-	Email     string
+	ID        string `gorm:"primaryKey"`
+	FirstName string `gorm:"not null"`
+	LastName  string `gorm:"not null"`
+	Email     string `gorm:"uniqueIndex;not null"`
 	Phone     string
 	Address   string
 }
@@ -36,3 +42,20 @@ func (c *Customer) FullName() string {
 func (c *Customer) GetID() string {
 	return c.ID
 }
+
+// BeforeDelete is a GORM hook that checks if a customer has accounts before deletion
+func (c *Customer) BeforeDelete(tx *gorm.DB) (err error) {
+	var count int64
+	if err := tx.Model(&Account{}).Where("customer_id = ?", c.ID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrorCustomerHasAccounts
+	}
+	return nil
+}
+
+// Custom errors defined for GORM hooks
+var (
+	ErrorCustomerHasAccounts = errors.New("cannot delete customer with active accounts")
+)

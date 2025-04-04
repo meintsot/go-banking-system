@@ -3,6 +3,8 @@ package models
 import (
 	"errors"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // AccountType represents the type of bank account
@@ -16,12 +18,14 @@ const (
 
 // Account represents a bank account with common fields
 type Account struct {
-	ID           string
-	CustomerID   string
-	Balance      float64
-	AccountType  AccountType
-	CreatedAt    time.Time
-	LastActivity time.Time
+	ID           string        `gorm:"primaryKey"`
+	CustomerID   string        `gorm:"index;not null"`
+	Customer     *Customer     `gorm:"foreignKey:CustomerID"`
+	Balance      float64       `gorm:"not null"`
+	AccountType  AccountType   `gorm:"not null"`
+	CreatedAt    time.Time     `gorm:"not null"`
+	LastActivity time.Time     `gorm:"not null"`
+	Transactions []Transaction `gorm:"foreignKey:AccountID"`
 }
 
 // NewAccount creates a new account with the provided details
@@ -72,3 +76,16 @@ func (a *Account) GetBalance() float64 {
 func (a *Account) GetID() string {
 	return a.ID
 }
+
+// BeforeDelete is a GORM hook that checks if an account has a positive balance before deletion
+func (a *Account) BeforeDelete(tx *gorm.DB) (err error) {
+	if a.Balance > 0 {
+		return ErrorAccountHasBalance
+	}
+	return nil
+}
+
+// Custom errors for GORM hooks
+var (
+	ErrorAccountHasBalance = errors.New("cannot delete account with positive balance")
+)
