@@ -31,14 +31,7 @@ func NewBankingService(
 
 // CreateCustomer creates a new customer
 func (s *BankingService) CreateCustomer(firstName, lastName, email, phone, address string) (*models.Customer, error) {
-	customer := &models.Customer{
-		ID:        s.idGenerator.GenerateID(),
-		FirstName: firstName,
-		LastName:  lastName,
-		Email:     email,
-		Phone:     phone,
-		Address:   address,
-	}
+	customer := models.NewCustomer(s.idGenerator.GenerateID(), firstName, lastName, email, phone, address)
 
 	err := s.customerRepo.Create(customer)
 	if err != nil {
@@ -113,15 +106,7 @@ func (s *BankingService) CreateAccount(customerID, accountType string, initialDe
 		return nil, fmt.Errorf("initial deposit cannot be negative")
 	}
 
-	now := time.Now()
-	account := &models.Account{
-		ID:           s.idGenerator.GenerateID(),
-		CustomerID:   customerID,
-		Balance:      initialDeposit,
-		AccountType:  models.AccountType(accountType),
-		CreatedAt:    now,
-		LastActivity: now,
-	}
+	account := models.NewAccount(s.idGenerator.GenerateID(), customerID, initialDeposit, models.AccountType(accountType))
 
 	// Create the account
 	err = s.accountRepo.Create(account)
@@ -131,14 +116,13 @@ func (s *BankingService) CreateAccount(customerID, accountType string, initialDe
 
 	// Record initial deposit transaction if > 0
 	if initialDeposit > 0 {
-		transaction := &models.Transaction{
-			ID:              s.idGenerator.GenerateID(),
-			AccountID:       account.ID,
-			Amount:          initialDeposit,
-			TransactionType: models.Deposit,
-			Description:     "Initial deposit",
-			Timestamp:       now,
-		}
+		transaction := models.NewTransaction(
+			s.idGenerator.GenerateID(),
+			account.ID,
+			initialDeposit,
+			models.Deposit,
+			"Initial deposit",
+		)
 
 		err = s.transactionRepo.Create(transaction)
 		if err != nil {
@@ -207,14 +191,13 @@ func (s *BankingService) Deposit(accountID string, amount float64, description s
 	}
 
 	// Record the transaction
-	transaction := &models.Transaction{
-		ID:              s.idGenerator.GenerateID(),
-		AccountID:       accountID,
-		Amount:          amount,
-		TransactionType: models.Deposit,
-		Description:     description,
-		Timestamp:       now,
-	}
+	transaction := models.NewTransaction(
+		s.idGenerator.GenerateID(),
+		accountID,
+		amount,
+		models.Deposit,
+		description,
+	)
 
 	err = s.transactionRepo.Create(transaction)
 	if err != nil {
@@ -256,14 +239,13 @@ func (s *BankingService) Withdraw(accountID string, amount float64, description 
 	}
 
 	// Record the transaction
-	transaction := &models.Transaction{
-		ID:              s.idGenerator.GenerateID(),
-		AccountID:       accountID,
-		Amount:          amount,
-		TransactionType: models.Withdrawal,
-		Description:     description,
-		Timestamp:       now,
-	}
+	transaction := models.NewTransaction(
+		s.idGenerator.GenerateID(),
+		accountID,
+		amount,
+		models.Withdrawal,
+		description,
+	)
 
 	err = s.transactionRepo.Create(transaction)
 	if err != nil {
@@ -329,15 +311,15 @@ func (s *BankingService) Transfer(
 	}
 
 	// Record the transaction
-	transaction := &models.Transaction{
-		ID:                   s.idGenerator.GenerateID(),
-		AccountID:            sourceAccountID,
-		Amount:               amount,
-		TransactionType:      models.Transfer,
-		Description:          description,
-		Timestamp:            now,
-		DestinationAccountID: destinationAccountID,
-	}
+	transaction := models.NewTransaction(
+		s.idGenerator.GenerateID(),
+		sourceAccountID,
+		amount,
+		models.Transfer,
+		description,
+	)
+
+	transaction.DestinationAccountID = destinationAccountID
 
 	err = s.transactionRepo.Create(transaction)
 	if err != nil {
